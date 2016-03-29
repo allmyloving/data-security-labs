@@ -3,10 +3,6 @@ package ua.nure.serdiuk;
 import java.util.HashMap;
 import java.util.Map;
 
-import javax.annotation.processing.ProcessingEnvironment;
-
-import ua.nure.serdiuk.util.Util;
-
 public class SBox {
 
 	private Map<Integer, Table> boxes;

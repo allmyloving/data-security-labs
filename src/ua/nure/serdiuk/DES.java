@@ -1,21 +1,17 @@
 package ua.nure.serdiuk;
 
 import java.io.UnsupportedEncodingException;
-import java.nio.charset.Charset;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
-import java.util.TreeMap;
 
-import javax.print.attribute.standard.JobOriginatingUserName;
-
+import ua.nure.serdiuk.Data.Block;
 import ua.nure.serdiuk.util.Util;
 
 public class DES {
 
-	public static final int[] SUBKEYS_SHIFT_TABLE = { 1, 1, 2, 2, 2, 2, 2, 2, 1, 2, 2, 2, 2, 2, 2, 1 };;
+	public static final int[] SUBKEYS_SHIFT_TABLE = { 1, 1, 2, 2, 2, 2, 2, 2, 1, 2, 2, 2, 2, 2, 2, 1 };
 
 	public static final int[] ROUND_KEY_SHIFT_TABLE = { 14, 17, 11, 24, 1, 5, 3, 28, 15, 6, 21, 10, 23, 19, 12, 4, 26,
 			8, 16, 7, 27, 20, 13, 2, 41, 52, 31, 37, 47, 55, 30, 40, 51, 45, 33, 48, 44, 49, 39, 56, 34, 53, 46, 42, 50,
@@ -46,70 +42,55 @@ public class DES {
 
 	private static long permute(long input, int[] table, int bits) {
 		long result = 0;
-		// for (int i = table.length - 1; i >= 0; i--) {
 		for (int i = 0; i < table.length; i++) {
-			long bit = Util.getBit2(input, (bits - 1) - (table[i] - 1));
-			// System.out.println("from " + (table[i] - 1) + "\t" + bit);
+			long bit = Util.getBit(input, (bits - 1) - (table[i] - 1));
 			result = (result << 1) | bit;
 		}
 
 		return result;
 	}
 
-	private static long cycleShiftLeft(long num, int shifts) {
-		long n = (num << shifts) | (num >> (28 - shifts));
-		return n & 0xFFF_FFFF;
-	}
-
-	private static Map<Integer, Long> generateRoundKeysEncrypt(long key) {
-		Map<Integer, Long> map = new HashMap<>();
+	private static List<Key> generateRoundKeysEncrypt(long key) {
+		List<Key> keys = new ArrayList<>();
 		long key56 = permute(key, KEY_SHRINK_TABLE, 64);
 		long c0 = key56 >>> 28;
 		long d0 = key56 & 0xFFF_FFFF;
 
 		long roundKey;
 		for (int i = 0; i < 16; i++) {
-			c0 = cycleShiftLeft(c0, SUBKEYS_SHIFT_TABLE[i]);
-			d0 = cycleShiftLeft(d0, SUBKEYS_SHIFT_TABLE[i]);
+			c0 = Util.cycleShiftLeft(c0, SUBKEYS_SHIFT_TABLE[i]);
+			d0 = Util.cycleShiftLeft(d0, SUBKEYS_SHIFT_TABLE[i]);
 
 			roundKey = permute(join(c0, d0), ROUND_KEY_SHIFT_TABLE, 56);
 
-			map.put(i, roundKey);
+			keys.add(new Key(i, roundKey));
 		}
 
-		return map;
+		return keys;
 	}
 
-	private static Map<Integer, Long> generateRoundKeysDecrypt(long key) {
-		Map<Integer, Long> map = new HashMap<>();
-		long key56 = permute(key, KEY_SHRINK_TABLE, 64);
-		long c0 = key56 >>> 28;
-		long d0 = key56 & 0xFFF_FFFF;
+	private static List<Key> generateRoundKeysDecrypt(long key) {
+		List<Key> keys = generateRoundKeysEncrypt(key);
+		Collections.sort(keys, new Comparator<Key>() {
+			@Override
+			public int compare(Key o1, Key o2) {
+				return o2.getNum() - o1.getNum();
+			}
+		});
 
-		long roundKey;
-		for (int i = 15; i >= 0; i--) {
-			c0 = cycleShiftLeft(c0, SUBKEYS_SHIFT_TABLE[15 - i]);
-			d0 = cycleShiftLeft(d0, SUBKEYS_SHIFT_TABLE[15 - i]);
-
-			roundKey = permute(join(c0, d0), ROUND_KEY_SHIFT_TABLE, 56);
-
-			map.put(i, roundKey);
-		}
-
-		return map;
+		return keys;
 	}
 
 	private static long join(long a, long b) {
 		return ((a << 28) | b);
 	}
 
-	private static List<Long> divide(String input) throws UnsupportedEncodingException {
-		List<Long> blocks = new ArrayList<>();
+	private static Data divide(String input) throws UnsupportedEncodingException {
+		Data blocks = new Data();
 		byte[] bytes = input.getBytes("utf-8");
 
 		for (int i = 0; i < bytes.length; i += 8) {
 			int to = (i + 8 > bytes.length) ? bytes.length : i + 8;
-			// System.out.println(to);
 			List<Byte> sub = Util.toByteList(bytes).subList(i, to);
 			if (sub.size() != 8) {
 				while (sub.size() != 8) {
@@ -117,51 +98,48 @@ public class DES {
 				}
 			}
 
-			blocks.add(concat(sub));
+			blocks.add(new Block(concat(sub)));
 		}
 		return blocks;
 	}
 
-	public static String encrypt(String input, long key) throws UnsupportedEncodingException {
-		Map<Integer, Long> roundKeys = generateRoundKeysEncrypt(key);
-		List<Long> encryptedBlocks = new ArrayList<>();
+	public static Data encrypt(String input, long key) throws UnsupportedEncodingException {
+		Data data = divide(input);
+		System.out.println(String.format("Message: %s", data.toString()));
 
-		for (long block : divide(input)) {
-			long b = encryptBlock(block, roundKeys);
+		return encrypt(data, generateRoundKeysEncrypt(key));
+	}
+
+	public static String decrypt(Data input, long key) {
+		List<Key> roundKeys = generateRoundKeysDecrypt(key);
+
+		return encrypt(input, roundKeys).toString();
+	}
+
+	private static Data encrypt(Data input, List<Key> roundKeys) {
+		Data encryptedBlocks = new Data();
+
+		for (Block block : input) {
+			Block b = encryptBlock(block.getData(), roundKeys);
 			encryptedBlocks.add(b);
 		}
 
-		StringBuilder res = new StringBuilder();
-		for (long bytes : encryptedBlocks) {
-			print("long", bytes);
-			byte[] arr = new byte[8];
-			for (int i = 0; i < 8; i++) {
-				arr[i] = (byte) (bytes >> 8 * (8 - i - 1) & 0xFF);
-				System.out.println(arr[i]);
-			}
-			res.append(new String(arr, Charset.forName("utf-8")));
-		}
-
-		return res.toString();
+		return encryptedBlocks;
 	}
 
-	private static long encryptBlock(long block, Map<Integer, Long> roundKeys) {
-		print("bef perm", block);
+	private static Block encryptBlock(long block, List<Key> roundKeys) {
 		long permutedBlock = permute(block, INIT_PERMUTATION_TABLE, 64);
 
-		print("permuted", permutedBlock);
 		long left = (permutedBlock >>> 32);
 		long right = permutedBlock << 32 >>> 32;
 
 		for (int i = 0; i < 16; i++) {
 			long temp = right;
-			// System.out.println(String.format("left: %d, right:%d", left,
-			// right));
-			right = left ^ f(right, roundKeys.get(i));
+			right = left ^ f(right, roundKeys.get(i).value);
 			left = temp;
 		}
 		long result = left | (right << 32);
-		return permute(result, FINAL_PERMUTATION_TABLE, 64);
+		return new Block(permute(result, FINAL_PERMUTATION_TABLE, 64));
 	}
 
 	private static long f(long right, long key) {
@@ -183,6 +161,12 @@ public class DES {
 		System.out.println(String.format("%s: %s", name, Long.toBinaryString(l)));
 	}
 
+	private static void printBlocks(String name, long l) {
+		StringBuilder sb = new StringBuilder(Long.toBinaryString(l)).reverse();
+		sb = new StringBuilder(sb.toString().replaceAll("(.{8})", "$1_"));
+		System.out.println(String.format("%s: %s", name, sb.reverse().toString()));
+	}
+
 	private static long concat(List<Byte> bytes) {
 		long result = 0;
 		for (byte b : bytes) {
@@ -195,22 +179,27 @@ public class DES {
 	public static void main(String[] args) throws UnsupportedEncodingException {
 		long data = 0x0123456789ABCDEFL;
 		long key = 0x133457799BBCDFF1L;
+		// long key = 0xFEFE_FEFE_FEFE_FEFEL;
+		// long key = 0xe0e0e0e0e0e0e0e0L;
 
-		Map<Integer, Long> keys = generateRoundKeysEncrypt(key);
-		Map<Integer, Long> keysDecrypt = generateRoundKeysDecrypt(key);
-
-		long encrypted = encryptBlock(data, keys);
-		// print("e", encrypted);
-		System.out.println(Long.toHexString(encrypted));
-
-		print("enc", encrypted);
-		// System.out.println("---------");
-		long decrypted = encryptBlock(encrypted, keysDecrypt);
-		System.out.println(Long.toHexString(decrypted));
-		print("dec", decrypted);
-
-		System.out.println(encrypt("asdf", key));
+		Data enc = encrypt("asdfsdkjghsjkdhgjksdhg", key);
+		System.out.println(String.format("Encrypted: %s", enc));
+		System.out.println(String.format("Decrypted: %s", decrypt(enc, key)));
 
 	}
 
+	private static class Key {
+		private final long value;
+
+		private final int num;
+
+		public Key(int num, long value) {
+			this.value = value;
+			this.num = num;
+		}
+
+		public int getNum() {
+			return num;
+		}
+	}
 }

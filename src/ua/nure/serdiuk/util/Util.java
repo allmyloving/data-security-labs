@@ -2,6 +2,8 @@ package ua.nure.serdiuk.util;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import ua.nure.serdiuk.SBox;
 import ua.nure.serdiuk.Table;
@@ -107,10 +109,12 @@ public final class Util {
 		return box;
 	}
 
-	public static long getBit2(long input, int bitNumFrom) {
+	public static long getBit(long input, int bitNumFrom) {
 		return (input >> bitNumFrom) & 1;
 	}
-	public static long getBit(long input, int bitNumFrom) {
-		return (input >> (63-bitNumFrom)) & 1;
+
+	public static long cycleShiftLeft(long num, int shifts) {
+		long n = (num << shifts) | (num >> (28 - shifts));
+		return n & 0xFFF_FFFF;
 	}
 }
